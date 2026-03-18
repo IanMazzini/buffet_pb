@@ -15,11 +15,11 @@ export function Header() {
             <Store className="size-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-foreground md:text-xl">Buffet POS</h1>
+            <h1 className="text-lg font-semibold text-foreground md:text-xl">Piedrabuena POS</h1>
             <p className="text-xs text-muted-foreground">Sistema de Punto de Venta</p>
           </div>
         </div>
-        
+
         <Button
           variant="outline"
           size="lg"

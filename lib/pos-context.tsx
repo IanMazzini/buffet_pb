@@ -20,7 +20,6 @@ interface POSContextType {
   lastOrderNumber: string
   lastOrderItems: ItemCarrito[]
 
-  // Actions
   agregarAlCarrito: (producto: Producto) => void
   quitarDelCarrito: (productoId: string) => void
   eliminarDelCarrito: (productoId: string) => void
@@ -31,7 +30,6 @@ interface POSContextType {
   procesarPago: () => Promise<void>
   cerrarModalExito: () => void
 
-  // Computed
   totalCarrito: number
   vuelto: number
   puedeConfirmar: boolean
@@ -63,42 +61,37 @@ export function POSProvider({ children }: { children: ReactNode }) {
     (metodoPago === 'efectivo' && montoNumerico >= totalCarrito)
   )
 
-  // --- NUEVA FUNCIÓN PARA CARGAR DESDE GOOGLE SHEETS ---
-  const cargarProductos = async () => {
+  // Envolvemos cargarProductos en useCallback para poder usarlo desde otras funciones
+  const cargarProductos = useCallback(async () => {
     try {
       const respuesta = await fetch(GOOGLE_API_URL)
       const datos = await respuesta.json()
 
       const productosFormateados = datos.map((p: any) => ({
         ...p,
-        id: p.id.toString(), // Aseguramos que el ID sea string
+        id: p.id.toString(),
         precio: Number(p.precio),
-        stock: Number(p.stock)
+        stock: Number(p.stock),
+        componentes: p.componentes || "" // Capturamos si es combo
       }))
 
       setProductos(productosFormateados)
     } catch (error) {
       console.error("Error cargando productos desde Sheets:", error)
     }
-  }
+  }, [])
 
-  // Hook para que cargue los datos al abrir la página
   useEffect(() => {
     cargarProductos()
-  }, [])
-  // -----------------------------------------------------
+  }, [cargarProductos])
 
   const agregarAlCarrito = useCallback((producto: Producto) => {
     setCarrito(prev => {
       const existente = prev.find(item => item.producto.id === producto.id)
-
-      // Check stock
       const cantidadActual = existente ? existente.cantidad : 0
       const stockDisponible = productos.find(p => p.id === producto.id)?.stock ?? 0
 
-      if (cantidadActual >= stockDisponible) {
-        return prev
-      }
+      if (cantidadActual >= stockDisponible) return prev
 
       if (existente) {
         return prev.map(item =>
@@ -115,10 +108,7 @@ export function POSProvider({ children }: { children: ReactNode }) {
     setCarrito(prev => {
       const existente = prev.find(item => item.producto.id === productoId)
       if (!existente) return prev
-
-      if (existente.cantidad === 1) {
-        return prev.filter(item => item.producto.id !== productoId)
-      }
+      if (existente.cantidad === 1) return prev.filter(item => item.producto.id !== productoId)
 
       return prev.map(item =>
         item.producto.id === productoId
@@ -138,7 +128,6 @@ export function POSProvider({ children }: { children: ReactNode }) {
     setMetodoPago('efectivo')
   }, [])
 
-  // Sincronizar ahora llama a tu API real
   const sincronizar = useCallback(async () => {
     setIsSyncing(true)
     try {
@@ -146,30 +135,21 @@ export function POSProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsSyncing(false)
     }
-  }, [])
+  }, [cargarProductos])
 
   const procesarPago = useCallback(async () => {
     if (!puedeConfirmar) return
 
     setIsProcessingPayment(true)
     try {
-      // Preparamos el paquete de datos para Google Sheets
-      const payload = {
-        carrito: carrito,
-        total: totalCarrito,
-        medioPago: metodoPago
-      };
-
-      // Hacemos el envío (POST) a apps script
+      const payload = { carrito, total: totalCarrito, medioPago: metodoPago }
       const respuesta = await fetch(GOOGLE_API_URL, {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
-
-      const resultado = await respuesta.json();
+      })
+      const resultado = await respuesta.json()
 
       if (resultado.exito) {
-        // Update local stock temporalmente para la UI
         setProductos(prev =>
           prev.map(producto => {
             const itemCarrito = carrito.find(item => item.producto.id === producto.id)
@@ -179,50 +159,35 @@ export function POSProvider({ children }: { children: ReactNode }) {
             return producto
           })
         )
-
         setLastOrderNumber(resultado.numeroPedido)
         setLastOrderItems([...carrito])
         setShowSuccessModal(true)
       } else {
-        alert("Hubo un problema registrando la venta: " + resultado.error);
+        alert("Hubo un problema registrando la venta: " + resultado.error)
       }
     } catch (error) {
-      console.error("Error al procesar el pago:", error);
-      alert("Error de conexión al registrar la venta.");
+      console.error("Error al procesar el pago:", error)
+      alert("Error de conexión al registrar la venta.")
     } finally {
       setIsProcessingPayment(false)
     }
   }, [carrito, metodoPago, totalCarrito, puedeConfirmar])
 
+  // ACÁ ESTÁ LA MAGIA DEL AUTO-SYNC DE FONDO
   const cerrarModalExito = useCallback(() => {
     setShowSuccessModal(false)
     vaciarCarrito()
-  }, [vaciarCarrito])
+    cargarProductos() // Llama a la API sin await, actualiza el stock silenciósamente
+  }, [vaciarCarrito, cargarProductos])
 
   return (
     <POSContext.Provider
       value={{
-        productos,
-        carrito,
-        metodoPago,
-        montoRecibido,
-        isSyncing,
-        isProcessingPayment,
-        showSuccessModal,
-        lastOrderNumber,
-        lastOrderItems,
-        agregarAlCarrito,
-        quitarDelCarrito,
-        eliminarDelCarrito,
-        vaciarCarrito,
-        setMetodoPago,
-        setMontoRecibido,
-        sincronizar,
-        procesarPago,
-        cerrarModalExito,
-        totalCarrito,
-        vuelto,
-        puedeConfirmar,
+        productos, carrito, metodoPago, montoRecibido, isSyncing,
+        isProcessingPayment, showSuccessModal, lastOrderNumber, lastOrderItems,
+        agregarAlCarrito, quitarDelCarrito, eliminarDelCarrito, vaciarCarrito,
+        setMetodoPago, setMontoRecibido, sincronizar, procesarPago,
+        cerrarModalExito, totalCarrito, vuelto, puedeConfirmar,
       }}
     >
       {children}
@@ -232,8 +197,6 @@ export function POSProvider({ children }: { children: ReactNode }) {
 
 export function usePOS() {
   const context = useContext(POSContext)
-  if (!context) {
-    throw new Error('usePOS must be used within a POSProvider')
-  }
+  if (!context) throw new Error('usePOS must be used within a POSProvider')
   return context
 }
